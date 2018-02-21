@@ -1,5 +1,5 @@
 precision highp float;
-uniform sampler2D fbTex;
+uniform sampler2D veltex;
 uniform sampler2D imageTex;
 uniform vec2 dims;
 

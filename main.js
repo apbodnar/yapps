@@ -3,11 +3,11 @@ function Particles(){
   let gl;
   let programs = {};
   let buffers = {};
-  let textures = {position: [], velocity: []};
+  let textures = {position: [], velocity: [], acceleration: []};
   let simulationFrameBuffers = [];
   let pingpong = 0;
   let scale = 1;
-  let texDims = 512;
+  let texDims = 1024;
   let invTexDims = 1/texDims;
   let numPoints = texDims*texDims;
   let perspective = mat4.perspective(mat4.create(), 1.6, window.innerWidth/window.innerHeight, 0.1, 10);
@@ -58,16 +58,17 @@ function Particles(){
     return t;
   }
 
-  function createFramebuffer(posTex, velTex){
+  function createFramebuffer(posTex, velTex, accTex){
     let ext = gl.getExtension('WEBGL_draw_buffers');
-    console.log(ext);
     let fbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, ext.COLOR_ATTACHMENT0_WEBGL, gl.TEXTURE_2D, posTex, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, ext.COLOR_ATTACHMENT1_WEBGL, gl.TEXTURE_2D, velTex, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, ext.COLOR_ATTACHMENT2_WEBGL, gl.TEXTURE_2D, accTex, 0);
     ext.drawBuffersWEBGL([
-      ext.COLOR_ATTACHMENT0_WEBGL, // gl_FragData[0]
-      ext.COLOR_ATTACHMENT1_WEBGL  // gl_FragData[1]
+      ext.COLOR_ATTACHMENT0_WEBGL,
+      ext.COLOR_ATTACHMENT1_WEBGL,
+      ext.COLOR_ATTACHMENT2_WEBGL
     ]);
     return fbo;
   }
@@ -134,6 +135,7 @@ function Particles(){
     let program = programs.sim;
     let v0 = new Float32Array(numPoints*3);
     let v1 = new Float32Array(numPoints*3);
+    let v2 = new Float32Array(numPoints*3);
     for ( let i=0; i<numPoints*3; i+=3 ){
       let r = Math.random(),
           phi = Math.random()*Math.PI,
@@ -146,8 +148,8 @@ function Particles(){
     }
     for ( let i=0; i<numPoints*3; i+=3 ){
       v0[i] = 0.0;
-      v0[i+1] = 0.01;
-      v0[i+2] = 0.01;
+      v0[i+1] = 0.1;
+      v0[i+2] = 0.1;
     }
 
     buffers.quad = createQuadBuffer();
@@ -156,8 +158,10 @@ function Particles(){
     textures.velocity.push(createFloatTexture(v0));
     textures.position.push(createFloatTexture(v1));
     textures.position.push(createFloatTexture(v1));
-    simulationFrameBuffers.push(createFramebuffer(textures.position[0], textures.velocity[0]));
-    simulationFrameBuffers.push(createFramebuffer(textures.position[1], textures.velocity[1]));
+    textures.acceleration.push(createFloatTexture(v2));
+    textures.acceleration.push(createFloatTexture(v2));
+    simulationFrameBuffers.push(createFramebuffer(textures.position[0], textures.velocity[0], textures.acceleration[0]));
+    simulationFrameBuffers.push(createFramebuffer(textures.position[1], textures.velocity[1], textures.acceleration[1]));
   }
 
   function initBuffers(){
@@ -166,8 +170,8 @@ function Particles(){
 
   function initPrograms(){
     let ext = gl.getExtension('WEBGL_draw_buffers');
-    programs.simulation = initProgram("shader/simulation",["fbTex","posTex","dims","tick","center"],["quad"]);
-    programs.draw = initProgram("shader/draw",["fbTex","imageTex","dims","perspective","rotation"],["coords","quad"]);
+    programs.simulation = initProgram("shader/simulation",["velTex","posTex","accTex","dims","tick","center"],["quad"]);
+    programs.draw = initProgram("shader/draw",["velTex","imageTex","dims","perspective","rotation"],["coords","quad"]);
   }
 
   function callSimulation(i){
@@ -175,8 +179,9 @@ function Particles(){
     gl.disable(gl.BLEND);
     gl.useProgram(program);
     gl.uniform1f(program.uniforms.scale, scale);
-    gl.uniform1i(program.uniforms.fbTex, 0);
+    gl.uniform1i(program.uniforms.velTex, 0);
     gl.uniform1i(program.uniforms.posTex, 1);
+    gl.uniform1i(program.uniforms.accTex, 2);
     gl.uniform1i(program.uniforms.tick, i);
     gl.uniform2f(program.uniforms.dims, invTexDims, invTexDims);
     gl.uniform3fv(program.uniforms.center, center);
@@ -184,6 +189,8 @@ function Particles(){
     gl.bindTexture(gl.TEXTURE_2D, textures.velocity[(i+1)%2]);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, textures.position[(i+1)%2]);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, textures.acceleration[(i+1)%2]);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, simulationFrameBuffers[i%2]);
     gl.viewport(0,0,texDims,texDims);
@@ -203,7 +210,7 @@ function Particles(){
     gl.blendFunc(gl.SRC_COLOR, gl.ONE);
     gl.useProgram(program);
     gl.uniform1i(program.uniforms.posTex, 0);
-    gl.uniform1i(program.uniforms.fbTex, 1);
+    gl.uniform1i(program.uniforms.velTex, 1);
     gl.uniform2f(program.uniforms.dims, invTexDims, invTexDims);
     gl.uniformMatrix4fv(program.uniforms.perspective, false, perspective);
     gl.uniformMatrix4fv(program.uniforms.rotation, false, rotation);
